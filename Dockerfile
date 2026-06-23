@@ -1,18 +1,35 @@
-#Usa una imagen de node como base
-FROM node:20-alpine AS build
-#Establece el directorio de trabajo dentro del contenedor
+# ─── Etapa 1: Build con Node ────────────────────────────────────────────────
+FROM node:18-alpine AS build
+
 WORKDIR /app
-#Copiar el archivo package.json package-lock.json
-COPY package.json package-lock.json ./
-#Instala las dependencias del proyecto
-RUN npm install
-#Copiar el resto del codigo del proyecto
+
+# Instalar dependencias (cache layer)
+COPY package*.json ./
+RUN npm ci
+
+# Copiar código y construir
 COPY . .
-#Compilar el proyecto
 RUN npm run build
-#Usar una imagen de nginx para servir el contenido estatico
-FROM nginx:1.19.0-alpine
-#Copiar los archivos de construccion desde la etapa anterior
-COPY --from=build /app/dist/ /usr/share/nginx/html
-#Exponer el puerto que se usará para acceder a la aplicacion
+
+# ─── Etapa 2: Servir con Nginx ──────────────────────────────────────────────
+FROM nginx:stable-alpine
+
+# Permisos para usuario no-root nginx (IE1 seguridad)
+RUN touch /var/run/nginx.pid && \
+    chown -R nginx:nginx /var/run/nginx.pid \
+                          /var/cache/nginx \
+                          /var/log/nginx \
+                          /etc/nginx/conf.d
+
+# Copiar plantilla de configuración con variables de entorno
+COPY default.conf.template /etc/nginx/templates/default.conf.template
+
+# Cambiar a usuario no-root
+USER nginx
+
+# Copiar archivos del build React
+COPY --from=build /app/dist /usr/share/nginx/html
+
 EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
